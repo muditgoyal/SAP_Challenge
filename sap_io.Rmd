@@ -10,21 +10,28 @@ output: html_document
 I was given a dataset to work on as part of a coding challenge for 
 SAP.iO recruitment! It's a list of ~6000 wines, both white and red. I had
 to split it up into two seperate ones because R is not the 
-best with memory allocation and my computer simply could not run it.
-This problem can be alleviated in the future by putting it in an 
+best with memory allocation and my computer simply could not run the CSV file with
+all 6000 wines + features. This problem can be alleviated in the future by putting it in an 
 AWS instance and use their cloud computers to be able to better run
 these models.
+
+Preface - I did this mainly with the framework that I learned in my Intro to 
+ML Class (Industrial Engineering 142.) They taught us how to code in R and also
+go through the steps of pre-processing, running regressions, builing the correlation plot, 
+modeling itself, and then interpreting the confusion matrix.
 
 I'm going to work with two models primarily for this - 
 - The traditional K-nearest neighbors
 - randomForest.
-### Pre-process
+
+### Pre-processing all the data.
 
 The first thing I did is go into the CSV file itself is to split the red
-and white wines into two different datasets. 
+and white wines into two different datasets manually, though this can 
+also be done with code and split into two different data frames. 
 
 # We will start with the red wine dataset.
-```{r}
+```{r Setting up parallel processing and loading libraries}
 # The below lines are to set up R so it uses all of my 
 # computer's cores in order to run the models much quicker.
 library(doParallel)
@@ -40,22 +47,25 @@ library(kknn)
 library(randomForest)
 library(corrplot)
 library(kernlab)
+library(dplyr)
 ```
 
-```{r}
-# Reading the data
+```{r Reading the data}
+# Using the read.csv function to read the data
 df <- read.csv("red.csv")
 
-# Changing NA's to 0's.
+# We don't want any empty cells in the data, so we will
+# change all of the NA values to 0.
 df[is.na(df)] <- 0
 str(df)
 ```
 Running str(df) displays the internal structure of the red wine dataset. 
-It shows that there are 1599 samples and 14 different variables.
+It shows that there are 1599 samples and 14 different variables. Everything is 
+of datatype int aside from our response variable quality, which is an integer.
 
 We now going to visualize the data using plots for each of the predictor variables. 
 
-```{R}
+```{R Regression line for red wines}
 for (i in c(1:12)) {
     plot(df[, i], jitter(df[, "quality"]), xlab = names(df)[i],
          ylab = "quality", cex = 0.5, cex.lab = 1)
@@ -64,21 +74,14 @@ for (i in c(1:12)) {
 }
 ```
 The line on each of these plots displays the linear regression of our response 
-variable __quality__ as a function of each of the predictor variables. When looking 
-at each of the plots the first thing that you see are the presence of numerous 
-outliers. For example, there's a very glaring outlier in the total sulfur dioxide plot, 
-as well as in the density plot. We are going to remove this one from the dataset. 
+variable __quality__ as a function of each of the predictor variables. 
 
-```{r}
-sulfur_max <- which(df$total.sulfur.dioxide == max(df$total.sulfur.dioxide))
-df <- df[-sulfur_max, ]
-```
 We can see that a few of the regression lines show a very weak association to 
 our response variable. We'll later split into training and test sets and then we can 
 figure out if we want to keep those features or remove them. I created a correlation
 plot next to further look at the associations between all the variables.
 
-```{r}
+```{r Correlation plot for red-wine}
 cor_redwines <- cor(df)
 # Had some trouble displaying the graph, so going to save as .png and 
 # then show in the R markdown file.
@@ -97,8 +100,9 @@ of all the weak associations shown in the correlation plot.
 
 We __need__ to convert our response variable to factor, and then do the 
 split into training and testing sets.
-```{r}
+```{r Splitting into training + Testing Sets}
 df$quality <- as.factor(df$quality)
+
 tr <- createDataPartition(df$quality, p = 2/3, list = F)
 train_red <- df[tr,]
 test_red <- df[-tr,]
@@ -108,17 +112,10 @@ We are going to go about this using both k-nearest neighors (KNN), along with ra
 We will use the caret function which we loaded earlier to tune the model that we can use 
 with the train function. We'll repeat 5 times.
 
-### The Caret
-I chose to use this library because it really helps to simplify model tuning. 
-We can use the tuneGrid argument, which is a grid of all the hyperparameters 
-we'd want to use to tune the model which we'll then pass into the train function. 
-
-### Feature Selection
-As said above we said that we would decide to use non-linear feature selection 
-methods since there are a few factors that have very weak correlations with our 
-response variable quality. Most feature selection methods would retain all the 
-predictors / excluded 1 at the most - so we are not going to be using feature 
-selection while we train and tune our models.
+### Caret
+Caret simplifies the tuning of the model. The expand.grid argument which we'll use
+below combines all of the hyperparameter values into all 
+possible combos.
 
 ### The Preprocessing
 KNN uses distance, so we need to make sure all the predictor variables are standardized. 
@@ -127,8 +124,7 @@ We will use the preProcess argument in the train function for this.
 ### KNN
 For KNN, we'll use 5 kmax, 2 distance, and 3 kernel values. 
 For the distance, 1 is the Manhattan distance, and 2 is the Euclidian distance.
-```{r}
-
+```{r KNN}
 train_ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 5)
 
 kknn_grid <- expand.grid(kmax = c(3, 5, 7, 9, 11), distance = c(1, 2),
@@ -139,49 +135,49 @@ kknn_train <- train(quality ~ ., data = train_red, method = "kknn",
                     preProcess = c("center", "scale"))
 plot(kknn_train)
 ```
-```{r}
+
+```{r Finding the best value for K.}
 kknn_train$bestTune
 ```
-The best value for k is 11, after the three repetitions.
+The best value for k is 7, after the three repetitions.
 
 ### The randomForest model.
-
 For Rf, the only parameter that we can mess around with is ___mtry___, which is 
 the number of vars which are randomly sampled at each split.
 We'll try values of 1 through 13 to pass through the tuneGrid arguement. 
 
-```{R}
+```{R Random Forest Model - Red wine}
 rf_grid <- expand.grid(mtry = 1:13)
 rf_train <- train(quality ~ ., data = train_red, method = "rf",
                   trcontrol = train_ctrl, tuneGrid = rf_grid, 
                   preProcess = c("center", "scale"))
 plot(rf_train)
 ```
-```{r}
+
+```{r Best mtry value - Red wine}
 rf_train$bestTune
 ```
-A mtry of 5 is the best value to use here.
+A mtry of 4 is the best value to use here.
 
 ### KNN or randomForest?
-
 # Creating the confusion matrix for KNN
-```{r}
+```{r Confusion matrix for red wine, KNN}
 kknn_predictor <- predict(kknn_train, test_red)
 confusionMatrix(kknn_predictor, test_red$quality)
 ```
 # The confusion matrix for our randomForest model.
-```{r}
+```{r Confusion Matrix for red wine, randomForest}
 rf_predict <- predict(rf_train, test_red)
 confusionMatrix(rf_predict, test_red$quality)
 ```
 For the red wine dataset, the Random Forest Model was the one which
 performed the best, with an accuracy of almost 70% with a strong Kappa of 
-.5055. The KNN was not better or worse.
+.4275. The KNN was not better or worse.
 
 ==================================================================================================================
 
 # Next, the white wine data set
-```{r}
+```{r Reading the white wine data set}
 df1 <- read.csv("white.csv")
 # changing NA's to 0's.
 df1[is.na(df1)] <- 0
@@ -191,7 +187,7 @@ Running str(df) on the wine dataset shows that there are 4898 samples, and 14 di
 
 Now going to visualize the data using plots for each of the predictor variables. 
 
-```{R}
+```{R Regression plots for white wines}
 for (i in c(1:12)) {
     plot(df1[, i], jitter(df1[, "quality"]), xlab = names(df1)[i],
          ylab = "quality", cex = 0.5, cex.lab = 1)
@@ -201,19 +197,12 @@ for (i in c(1:12)) {
 ```
 The line on each of these plots displays the linear regression of our response
 variable __quality__ as a function of each of the predictor variables. 
-When looking at each of the plots the first thing that you see are the presence of 
-numerous outliers. For example, there's a very glaring outlier in the 
-residual sugar plot, as well as in the density plot. We are going to remove this one from the dataset. 
 
-```{r}
-max_sugar <- which(df1$residual.sugar == max(df1$residual.sugar))
-df1 <- df1[-max_sugar, ]
-```
 Again, there are a few regression lines which show a very weak 
-association. Like before, we first split into training and test sets and 
+association. Like before, we  will first split into training and test sets and 
 then we can figure out if we want to keep those features or remove them. 
 
-```{r}
+```{r Correlation plot for white wines}
 cor_white <- cor(df1)
 png(height = 1200, width = 1500, pointsize = 25, file = 'white_cor_plot.png')
 corrplot(cor_white, method = 'number')
@@ -224,12 +213,12 @@ You can see the weak relationships here between quality, citric acid, residual s
 free.sulplur dioxide, and also sulphates as shown in the plot. After looking at this data,
 after processing through the data, we can continue on and say that non-linear classification
 models will be more appropriate than regression.
-==================================================================================================================
+
 ### Building the Model
 
 We __need__ to convert our response variable to factor, and then do the split 
 into training and testing sets.
-```{r}
+```{r Tarining and test set for white wines}
 df1$quality <- as.factor(df1$quality)
 tr_white <- createDataPartition(df1$quality, p = 2/3, list = F)
 train_white <- df1[tr_white,]
@@ -238,29 +227,22 @@ test_white <- df1[-tr_white,]
 
 We are going to go about this using both k-nearest neighors (KNN), 
 along with randomForest. We will use the caret function which we loaded earlier 
-to tune the model that we can use with the train function. We'll repeat 3 times.
+to tune the model that we can use with the train function. We'll repeat 5 times.
 
-### The Caret
-I chose to use this library because it really helps to simplify model tuning. 
-We can use the tuneGrid argument, which is a grid of all the hyperparameters 
-we'd want to use to tune the model which we'll then pass into the train function. 
+### Caret
+Caret simplifies the tuning of the model. The expand.grid argument which we'll use
+below combines all of the hyperparameter values into all 
+possible combos.
 
-### Feature Selection
-As said above we said that we would decide to use non-linear feature selection 
-methods since there are a few factors that have very weak correlations with our 
-response variable quality. Most feature selection methods would retain all the 
-predictors / excluded 1 at the most - so we are not going to be using feature 
-selection while we train and tune our models.
-
-### Preprocessing
-KNN uses distance, so we need to make sure all the predictor variables are 
-standardized. We will use the preProcess argument in the train function for this.
+### The Preprocessing
+KNN uses distance, so we need to make sure all the predictor variables are standardized. 
+We will use the preProcess argument in the train function for this.
 
 ### KNN
 For KNN, we'll use 5 kmax, 2 distance, and 3 kernel values. 
 For the distance, 1 is the Manhattan distance, and 2 is the Euclidian distance.
-```{r}
-train_ctrl_white <- trainControl(method = "repeatedcv", number = 5, repeats = 3)
+```{r KNN White}
+train_ctrl_white <- trainControl(method = "repeatedcv", number = 5, repeats = 5)
 
 kknn_grid_white <- expand.grid(kmax = c(3, 5, 7, 9, 11), distance = c(1, 2),
                          kernel = c("rectangular", "gaussian", "cos"))
@@ -271,29 +253,32 @@ kknn_train_white <- train(quality ~ ., data = train_white, method = "kknn",
 plot(kknn_train_white)
 ```
 
-```{r}
+```{r Best K value - white}
 kknn_train_white$bestTune
 ```
-The best value for k is 11, after the three repetitions.
+The best value for k is 9, after the 5 repetitions.
 
 ### The randomForest model.
-
 For this model, it seems that only the mtry 
-(number of variables hyperparameter is of use to us. We'll pass 
-mtry values of 1-12 into the train function's tuneGrid arg. 
-```{R}
-rf_grid_white <- expand.grid(mtry = 1:12)
+hyperparameter is of use to us. We'll pass 
+mtry values of 1-13 into the train function's tuneGrid arg. 
+```{R rf - White}
+rf_grid_white <- expand.grid(mtry = 1:13)
 rf_train_white <- train(quality ~ ., data = train_white, method = "rf",
-                  trcontrol = train_control_white, tuneGrid = rf_grid_white, 
+                  trcontrol = train_ctrl_white, tuneGrid = rf_grid_white, 
                   preProcess = c("center", "scale"))
 plot(rf_train_white)
 ```
-```{r}
+
+```{R best mtry values}
 rf_train_white$bestTune
 ```
-A mtry of 2 is the best value to use here.
-==================================================================================================================
-### The Model Selection
+A mtry of 3 is the best value to use here.
+
+### The Model Selection 
+
+We'll plot the confusion matrix for both of the models to see which
+model we can use to get some sort of conclusive result from this dataset.
 ```{r}
 kknn_predict_white <- predict(kknn_train_white, test_white)
 confusionMatrix(kknn_predict_white, test_white$quality)
@@ -304,7 +289,7 @@ rf_predict_white <- predict(rf_train_white, test_white)
 confusionMatrix(rf_predict_white, test_white$quality)
 ```
 For white wine, the random forest model performed better. We have a
-95% CI of (.6276, and .6745), and a Kappa level of 0.4494. KNN did 
+95% CI of (.6239, and .6709), and a Kappa level of 0.4451. KNN did 
 not perform as well. Both did a rather poor job of identifying white wines
 of the 2 lowest and 2 highest classes.
 ==================================================================================================================
